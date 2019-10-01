@@ -11,6 +11,7 @@
 #include <QDBusObjectPath>
 #include <QMap>
 #include <QDBusPendingCallWatcher>
+#include <QPair>
 
 #include "accesspoint.h"
 #include "wifibackendinterface.h"
@@ -83,11 +84,12 @@ private:
     QString m_hotspotSSID;
     QString m_hotspotPassword;
 
-    QVariantList m_accessPoints;
     ConnectivityModule::ConnectionStatus m_connectionStatus = ConnectivityModule::Disconnected;
     AccessPoint m_activeAccessPoint;
     QString m_errorString;
-    QMap<QString, QDBusObjectPath> m_accessPointObjects;
+
+    QMap<QString, QDBusObjectPath> m_accessPointObjects; //ssid -> QDBusObjectPath
+    QVariantList m_accessPoints;
 
     bool m_dbusSignalsConnected = false;
 
@@ -96,6 +98,9 @@ private:
 
     void prepareUserInputAgent();
     void destroyUserInputAgent();
+
+    QMap<QDBusPendingCallWatcher*, QPair<QString, QString> > m_pendingCalls; //watcher -> pair(ssid, changedProperty)
+    void pendingCallOfGetFinished(QDBusPendingCallWatcher *watcher);
 };
 
 #endif // CONNECTIVITY_WIFIBACKEND_H_
