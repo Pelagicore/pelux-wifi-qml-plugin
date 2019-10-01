@@ -409,7 +409,6 @@ void WiFiBackend::pendingCallOfGetFinished(QDBusPendingCallWatcher *watcher)
 
     if (reply.isError()) {
         qWarning() << reply.error().message();
-        return;
     } else {
         QDBusMessage message = reply.reply();
         const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
