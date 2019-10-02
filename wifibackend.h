@@ -88,7 +88,8 @@ private:
     AccessPoint m_activeAccessPoint;
     QString m_errorString;
 
-    QMap<QString, QDBusObjectPath> m_accessPointObjects; //ssid -> QDBusObjectPath
+    //QMap<QString, QPair<int,QDBusObjectPath>> m_accessPointObjects; //ssid -> pair(index,QDBusObjectPath)
+    QMap<QString, QPair<int, AccessPoint>> m_accessPointObjects; //dbus object path -> pair(index, AccessPoint)
     QVariantList m_accessPoints;
 
     bool m_dbusSignalsConnected = false;
@@ -98,9 +99,6 @@ private:
 
     void prepareUserInputAgent();
     void destroyUserInputAgent();
-
-    QMap<QDBusPendingCallWatcher*, QPair<QString, QString> > m_pendingCalls; //watcher -> pair(ssid, changedProperty)
-    void pendingCallOfGetFinished(QDBusPendingCallWatcher *watcher);
 
     void pendingCallOfGettingAccessPointsFinished(QDBusPendingCallWatcher *watcher);
 };

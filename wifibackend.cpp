@@ -190,14 +190,24 @@ QIviPendingReply<void> WiFiBackend::connectToAccessPoint(const QString &ssid)
 
     QDBusMessage messageConnect = QDBusMessage::createMethodCall(connectivityDBusService, connectivityDBusPath, connectivityDBusInterface, "Connect" );
 
-    if ( !m_accessPointObjects.contains(ssid) ) {
+    QString objectPath;
+    QMap<QString, QPair<int, AccessPoint>>::const_iterator it;
+    for (it = m_accessPointObjects.constBegin(); it != m_accessPointObjects.constEnd(); it++) {
+        AccessPoint ap = it.value().second;
+        if (ap.ssid() == ssid) {
+            objectPath = it.key();
+            break;
+        }
+    }
+    
+    if ( objectPath.isEmpty() ) {
         qWarning() << "Unknown SSID" << ssid << "to connect to.";
         reply.setFailed();
         return reply;
     }
 
     QVariantList args;
-    args.append(QVariant::fromValue(m_accessPointObjects[ssid]));
+    args.append(QVariant::fromValue(QDBusObjectPath(objectPath)));
     args.append(QVariant::fromValue(QDBusObjectPath(userInputAgentDBusPath)));
     messageConnect.setArguments(args);
 
@@ -217,14 +227,24 @@ QIviPendingReply<void> WiFiBackend::disconnectFromAccessPoint(const QString &ssi
     QIviPendingReply<void> reply;
     QDBusMessage messageConnect = QDBusMessage::createMethodCall(connectivityDBusService, connectivityDBusPath, connectivityDBusInterface, "Disconnect" );
 
-    if ( !m_accessPointObjects.contains(ssid) ) {
+    QString objectPath;
+    QMap<QString, QPair<int, AccessPoint>>::const_iterator it;
+    for (it = m_accessPointObjects.constBegin(); it != m_accessPointObjects.constEnd(); it++) {
+        AccessPoint ap = it.value().second;
+        if (ap.ssid() == ssid) {
+            objectPath = it.key();
+            break;
+        }
+    }
+
+    if (objectPath.isEmpty()) {
         qWarning() << "Unknown SSID" << ssid << "to connect to.";
         reply.setFailed();
         return reply;
     }
 
     QVariantList args;
-    args.append(QVariant::fromValue(m_accessPointObjects[ssid]));
+    args.append(QVariant::fromValue(QDBusObjectPath(objectPath)));
 
     messageConnect.setArguments(args);
 
@@ -289,6 +309,7 @@ void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList 
     m_accessPoints.clear();
     m_accessPointObjects.clear();
 
+    int realIndex = 0;
     for (int i=0; i<dbusObjList.count(); i++) {
         QString dbusObjPath = dbusObjList.at(i).path();
         QDBusInterface dbusInterface(connectivityDBusService, dbusObjPath, accessPointDBusInterface,
@@ -316,8 +337,10 @@ void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList 
             dbusConnection().connect(connectivityDBusService, dbusObjList.at(i).path(), dbusPropertyInterface, 
                     QStringLiteral("PropertiesChanged"), this, SLOT(propertiesChangedHandler(QDBusMessage)));
 
-            m_accessPointObjects.insert( ssid, dbusObjList.at(i) );
+            m_accessPointObjects.insert( dbusObjList.at(i).path(), qMakePair(realIndex, ap) );
+            
             m_accessPoints.append(QVariant::fromValue(ap));
+            realIndex += 1;
         }
     }
 
@@ -371,77 +394,37 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
         argument1.endMap();
     } else if (arguments.value(0) == accessPointDBusInterface) {
     
-        QMap<QString, QDBusObjectPath>::iterator it;
-        for (it = m_accessPointObjects.begin(); it != m_accessPointObjects.end(); ++it) {
-            
-            QString ssid = it.key();
-            QDBusObjectPath dbusObjPath = it.value();
-
-            /* Find out which object has changed its property */
-            if ( dbusObjPath.path() == message.path() ) {
-                const QDBusArgument &argument1 = arguments.value(1).value<QDBusArgument>();
-                argument1.beginMap();
-                while (!argument1.atEnd()) {
-                    argument1.beginMapEntry();
-                    QString propertyName = argument1.asVariant().toString();
-
-                    QDBusMessage dbusMessageRequestProperty = QDBusMessage::createMethodCall(connectivityDBusService, dbusObjPath.path(), dbusPropertyInterface, "Get" );
-    
-                    QVariantList args;
-                    args.append(QVariant::fromValue( accessPointDBusInterface ));
-                    args.append(QVariant::fromValue( propertyName ));
-                    dbusMessageRequestProperty.setArguments(args);
-
-                    QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(dbusMessageRequestProperty, ASYNC_CALL_TIMEOUT);
-                    QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
-                    QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, &WiFiBackend::pendingCallOfGetFinished);
-                    m_pendingCalls.insert(pendingCallWatcher, qMakePair(ssid, propertyName));
-
-                    argument1.endMapEntry();
-                }
-                argument1.endMap();
-
-                break;
-            }
-        }
-    }
-}
-
-
-void WiFiBackend::pendingCallOfGetFinished(QDBusPendingCallWatcher *watcher)
-{
-    //pair(ssid, changedProperty)
-    QPair<QString,QString> pair = m_pendingCalls.take(watcher);
-
-    QDBusPendingReply<void> reply = *watcher;
-
-    if (reply.isError()) {
-        qWarning() << reply.error().message();
-    } else {
-        QDBusMessage message = reply.reply();
-        const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
-
-        for (int i=0; i<m_accessPoints.length(); i++) {
-            AccessPoint ap = m_accessPoints[i].value<AccessPoint>();
-            if (ap.ssid() == pair.first) {
-                if (pair.second == "SSID") {
-                    ap.setSsid( var.toString() );
-                } else if (pair.second == "Connected") {
-                    ap.setConnected( var.toBool() );
-                } else if (pair.second == "Strength") {
-                    ap.setStrength( var.toInt() );
-                } else if (pair.second == "Security") {
-                    ap.setSecurity( securityTypeString2Enum(var.toString()) );
+        QString objectPath = message.path();
+        if ( m_accessPointObjects.contains(objectPath) ) {
+            int index = m_accessPointObjects.value(objectPath).first;
+            AccessPoint ap = m_accessPointObjects.value(objectPath).second;
+                
+            const QDBusArgument &argument1 = arguments.value(1).value<QDBusArgument>();
+            argument1.beginMap();
+            while (!argument1.atEnd()) {
+                argument1.beginMapEntry();
+                QString propertyName;
+                QVariant propertyValue;
+                argument1 >> propertyName >> propertyValue;
+                if (propertyName == "SSID") {
+                    ap.setSsid( propertyValue.toString() );
+                } else if (propertyName == "Connected") {
+                    ap.setConnected( propertyValue.toBool() );
+                } else if (propertyName == "Strength") {
+                    ap.setStrength( propertyValue.toInt() );
+                } else if (propertyName == "Security") {
+                    ap.setSecurity( securityTypeString2Enum(propertyValue.toString()) );
                 }
 
-                m_accessPoints.replace(i, QVariant::fromValue(ap));
-                emit accessPointsChanged(m_accessPoints);
-
-                break;
+                argument1.endMapEntry();
             }
+            argument1.endMap();
+                
+            m_accessPoints.replace(index, QVariant::fromValue(ap));
+            m_accessPointObjects.insert(objectPath, qMakePair(index, ap));
+            emit accessPointsChanged(m_accessPoints);
         }
     }
-    watcher->deleteLater();
 }
 
 
