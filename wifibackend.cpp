@@ -38,7 +38,8 @@ void WiFiBackend::initialize()
     m_hotspotPassword = getProperty("WiFiHotspotPassphrase").toString();
     emit hotspotPasswordChanged(m_hotspotPassword);
 
-    updateAccessPoints();
+    QList<QDBusObjectPath> dbusObjList = qvariant_cast< QList<QDBusObjectPath> >(getProperty("WiFiAccessPoints"));
+    updateAccessPoints( dbusObjList );
     connectSignalsHandler();
 
     emit connectionStatusChanged(m_connectionStatus);
@@ -283,10 +284,8 @@ bool WiFiBackend::setProperty(const QString &propertyName, const QVariant &prope
 }
 
 
-void WiFiBackend::updateAccessPoints()
+void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList )
 {
-    QList<QDBusObjectPath> dbusObjList = qvariant_cast< QList<QDBusObjectPath> >(getProperty("WiFiAccessPoints"));
-
     m_accessPoints.clear();
     m_accessPointObjects.clear();
 
@@ -355,7 +354,16 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
             } else if (name == "WiFiEnabled") {
                 setEnabled( getProperty("WiFiEnabled").toBool() );
             } else if (name == "WiFiAccessPoints") {
-                updateAccessPoints();
+                QDBusMessage dbusMessageRequestProperty = QDBusMessage::createMethodCall(connectivityDBusService,
+                        connectivityDBusPath, dbusPropertyInterface, "Get" );
+                QVariantList args;
+                args.append(QVariant::fromValue( connectivityDBusInterface ));
+                args.append(QVariant::fromValue( QString("WiFiAccessPoints") ));
+                dbusMessageRequestProperty.setArguments(args);
+
+                QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(dbusMessageRequestProperty, ASYNC_CALL_TIMEOUT);
+                QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
+                QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, &WiFiBackend::pendingCallOfGettingAccessPointsFinished);
             }
 
             argument1.endMapEntry();
@@ -436,6 +444,31 @@ void WiFiBackend::pendingCallOfGetFinished(QDBusPendingCallWatcher *watcher)
     watcher->deleteLater();
 }
 
+
+void WiFiBackend::pendingCallOfGettingAccessPointsFinished(QDBusPendingCallWatcher *watcher)
+{
+    QDBusPendingReply<void> reply = *watcher;
+
+    if (reply.isError()) {
+        qWarning() << reply.error().message();
+    } else {
+        QDBusMessage message = reply.reply();
+        const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+        const QDBusArgument &arg = var.value<QDBusArgument>();
+
+        QList<QDBusObjectPath> dbusObjList;
+        arg.beginArray();
+        while (!arg.atEnd()) {
+            QDBusObjectPath path;
+            arg >> path;
+            dbusObjList.append(path);
+        }
+        arg.endArray();
+
+        updateAccessPoints( dbusObjList );
+    }
+    watcher->deleteLater();
+}
 
 ConnectivityModule::SecurityType WiFiBackend::securityTypeString2Enum(const QString& securityString)
 {

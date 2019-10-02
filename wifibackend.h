@@ -73,7 +73,7 @@ private:
     QVariant getProperty(const QString &propertyName);
     bool setProperty(const QString &propertyName, const QVariant &propertyValue);
 
-    void updateAccessPoints();
+    void updateAccessPoints(const QList<QDBusObjectPath> &dbusObjList);
     void connectSignalsHandler();
     ConnectivityModule::SecurityType securityTypeString2Enum(const QString& securityString);
 
@@ -101,6 +101,8 @@ private:
 
     QMap<QDBusPendingCallWatcher*, QPair<QString, QString> > m_pendingCalls; //watcher -> pair(ssid, changedProperty)
     void pendingCallOfGetFinished(QDBusPendingCallWatcher *watcher);
+
+    void pendingCallOfGettingAccessPointsFinished(QDBusPendingCallWatcher *watcher);
 };
 
 #endif // CONNECTIVITY_WIFIBACKEND_H_
