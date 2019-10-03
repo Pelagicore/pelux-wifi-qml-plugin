@@ -375,10 +375,8 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
                 QVariant propertyValue;
                 argument1 >> propertyName >> propertyValue;
                 if (propertyName == "WiFiEnabled") {
-                    qWarning() << "WiFiEnabled" << propertyValue.toBool();
                     setEnabled( propertyValue.toBool() );
                 } else if (propertyName == "WiFiAvailable") {
-                    qWarning() << "WiFiAvailable" << propertyValue.toBool();
                     setAvailable( propertyValue.toBool() );
                 } else if (propertyName == "WiFiAccessPoints") {
                     const QDBusArgument &arg = propertyValue.value<QDBusArgument>();
@@ -387,7 +385,6 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
                     while (!arg.atEnd()) {
                         QDBusObjectPath path;
                         arg >> path;
-                        qWarning() << path.path();
                         dbusObjList.append(path);
                     }
                     arg.endArray();
