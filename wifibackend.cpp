@@ -367,31 +367,35 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
     if (arguments.value(0) == connectivityDBusInterface) {
         const QDBusArgument& argument1 = arguments.value(1).value<QDBusArgument>();
 
-        argument1.beginMap();
-        while (!argument1.atEnd()) {
-            argument1.beginMapEntry();
-
-            const QString &name = argument1.asVariant().toString();
-            if (name == "WiFiAvailable") {
-                setAvailable( getProperty("WiFiAvailable").toBool() );
-            } else if (name == "WiFiEnabled") {
-                setEnabled( getProperty("WiFiEnabled").toBool() );
-            } else if (name == "WiFiAccessPoints") {
-                QDBusMessage dbusMessageRequestProperty = QDBusMessage::createMethodCall(connectivityDBusService,
-                        connectivityDBusPath, dbusPropertyInterface, "Get" );
-                QVariantList args;
-                args.append(QVariant::fromValue( connectivityDBusInterface ));
-                args.append(QVariant::fromValue( QString("WiFiAccessPoints") ));
-                dbusMessageRequestProperty.setArguments(args);
-
-                QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(dbusMessageRequestProperty, ASYNC_CALL_TIMEOUT);
-                QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
-                QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, &WiFiBackend::pendingCallOfGettingAccessPointsFinished);
+        //------
+            argument1.beginMap();
+            while (!argument1.atEnd()) {
+                argument1.beginMapEntry();
+                QString propertyName;
+                QVariant propertyValue;
+                argument1 >> propertyName >> propertyValue;
+                if (propertyName == "WiFiEnabled") {
+                    qWarning() << "WiFiEnabled" << propertyValue.toBool();
+                    setEnabled( propertyValue.toBool() );
+                } else if (propertyName == "WiFiAvailable") {
+                    qWarning() << "WiFiAvailable" << propertyValue.toBool();
+                    setAvailable( propertyValue.toBool() );
+                } else if (propertyName == "WiFiAccessPoints") {
+                    const QDBusArgument &arg = propertyValue.value<QDBusArgument>();
+                    QList<QDBusObjectPath> dbusObjList;
+                    arg.beginArray();
+                    while (!arg.atEnd()) {
+                        QDBusObjectPath path;
+                        arg >> path;
+                        qWarning() << path.path();
+                        dbusObjList.append(path);
+                    }
+                    arg.endArray();
+                    updateAccessPoints( dbusObjList );
+                }
+                argument1.endMapEntry();
             }
-
-            argument1.endMapEntry();
-        }
-        argument1.endMap();
+            argument1.endMap();
     } else if (arguments.value(0) == accessPointDBusInterface) {
     
         QString objectPath = message.path();
@@ -427,31 +431,6 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
     }
 }
 
-
-void WiFiBackend::pendingCallOfGettingAccessPointsFinished(QDBusPendingCallWatcher *watcher)
-{
-    QDBusPendingReply<void> reply = *watcher;
-
-    if (reply.isError()) {
-        qWarning() << reply.error().message();
-    } else {
-        QDBusMessage message = reply.reply();
-        const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
-        const QDBusArgument &arg = var.value<QDBusArgument>();
-
-        QList<QDBusObjectPath> dbusObjList;
-        arg.beginArray();
-        while (!arg.atEnd()) {
-            QDBusObjectPath path;
-            arg >> path;
-            dbusObjList.append(path);
-        }
-        arg.endArray();
-
-        updateAccessPoints( dbusObjList );
-    }
-    watcher->deleteLater();
-}
 
 ConnectivityModule::SecurityType WiFiBackend::securityTypeString2Enum(const QString& securityString)
 {

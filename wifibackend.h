@@ -99,8 +99,6 @@ private:
 
     void prepareUserInputAgent();
     void destroyUserInputAgent();
-
-    void pendingCallOfGettingAccessPointsFinished(QDBusPendingCallWatcher *watcher);
 };
 
 #endif // CONNECTIVITY_WIFIBACKEND_H_
