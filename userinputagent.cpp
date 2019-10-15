@@ -29,6 +29,7 @@ QMap<QString, QVariant> UserInputAgent::RequestCredentials(const QString &descri
 
     message.setDelayedReply(true);
     m_requestData->reply = message.createReply();
+    m_requestData->errorReply = message.createErrorReply(QDBusError::Failed, "The user cancelled connection");
 
     return response;
 }
@@ -46,5 +47,11 @@ void UserInputAgent::sendCredentials(const QString &ssid, const QString &usernam
     m_requestData->request["password"] = QVariant::fromValue(arg);
     m_requestData->reply << m_requestData->request;
     WiFiBackend::dbusConnection().send(m_requestData->reply);
+}
+
+
+void UserInputAgent::cancel()
+{
+    WiFiBackend::dbusConnection().send(m_requestData->errorReply);
 }
 

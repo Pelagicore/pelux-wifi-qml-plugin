@@ -225,6 +225,11 @@ QIviPendingReply<void> WiFiBackend::connectToAccessPoint(const QString &ssid)
 QIviPendingReply<void> WiFiBackend::disconnectFromAccessPoint(const QString &ssid)
 {
     QIviPendingReply<void> reply;
+
+    if (connectionStatus() == ConnectivityModule::Connecting) {
+        m_userInputAgent->cancel();
+    }
+
     QDBusMessage messageConnect = QDBusMessage::createMethodCall(connectivityDBusService, connectivityDBusPath, connectivityDBusInterface, "Disconnect" );
 
     QString objectPath;

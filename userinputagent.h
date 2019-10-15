@@ -19,6 +19,7 @@ struct RequestData
     QString description_id;
     QMap<QString, QVariant> request;
     QDBusMessage reply;
+    QDBusMessage errorReply;
 };
 
 class UserInputAgent : public QDBusAbstractAdaptor
@@ -31,6 +32,7 @@ public:
     ~UserInputAgent() = default;
 
     void sendCredentials(const QString &ssid, const QString &username, const QString &password);
+    void cancel();
 
 public Q_SLOTS:
     QVariantMap RequestCredentials(const QString &description_type, 
@@ -43,7 +45,6 @@ Q_SIGNALS:
         
 private:
     QSharedPointer<RequestData> m_requestData = QSharedPointer<RequestData>::create();
-
     QString m_securityKeyword;
 };
 
