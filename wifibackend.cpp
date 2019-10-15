@@ -314,43 +314,64 @@ void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList 
     m_accessPoints.clear();
     m_accessPointObjects.clear();
 
-    int realIndex = 0;
     for (int i=0; i<dbusObjList.count(); i++) {
         QString dbusObjPath = dbusObjList.at(i).path();
-        QDBusInterface dbusInterface(connectivityDBusService, dbusObjPath, accessPointDBusInterface,
-                                        WiFiBackend::dbusConnection(), this
-                                    );
-        if (!dbusInterface.isValid()) {
-            qWarning() << Q_FUNC_INFO << dbusInterface.lastError().message();
-            continue;
-        }
+        QDBusMessage dbusMessageRequestProperties = 
+            QDBusMessage::createMethodCall(connectivityDBusService, dbusObjPath, dbusPropertyInterface, "GetAll" );
+        QVariantList args;
+        args.append(QVariant::fromValue( accessPointDBusInterface ));
+        dbusMessageRequestProperties.setArguments(args);
 
-        QString ssid = dbusInterface.property("SSID").toString();
-        bool connected = dbusInterface.property("Connected").toBool();
-        int strength = dbusInterface.property("Strength").toInt();
-        QString securityString = dbusInterface.property("Security").toString();
-        ConnectivityModule::SecurityType security = securityTypeString2Enum(securityString);
-        
-        if (ssid != "") {
-            AccessPoint ap(ssid, connected, strength, security);
-            if (connected) {
-                setActiveAccessPoint(ap);
-                setConnectionStatus(ConnectivityModule::Connected);
-            }
-
-            /* Connect "PropertiesChanged" for exposed access point object on DBus */
-            dbusConnection().connect(connectivityDBusService, dbusObjList.at(i).path(), dbusPropertyInterface, 
-                    QStringLiteral("PropertiesChanged"), this, SLOT(propertiesChangedHandler(QDBusMessage)));
-
-            m_accessPointObjects.insert( dbusObjList.at(i).path(), qMakePair(realIndex, ap) );
+        QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(dbusMessageRequestProperties, ASYNC_CALL_TIMEOUT);
+        QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
             
-            m_accessPoints.append(QVariant::fromValue(ap));
-            realIndex += 1;
-        }
-    }
+        QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, 
+                [this, dbusObjPath](QDBusPendingCallWatcher *watcher) {
+                    QDBusPendingReply<void> reply = *watcher;
 
-    emit accessPointsChanged(m_accessPoints);
+                    if (reply.isError()) {
+                        qWarning() << reply.error().message();
+                        return;
+                    } else {
+                        QDBusMessage message = reply.reply();
+                        const QDBusArgument &arg = message.arguments().first().value<QDBusArgument>();
+                        AccessPoint ap;
+                        arg.beginMap();
+                        while (!arg.atEnd()) {
+                            arg.beginMapEntry();
+                            QString propertyName;
+                            QVariant propertyValue;
+                            arg >> propertyName >> propertyValue;
+                            if (propertyName == "SSID") {
+                                ap.setSsid( propertyValue.toString() );
+                            } else if (propertyName == "Connected") {
+                                ap.setConnected( propertyValue.toBool() );
+                            } else if (propertyName == "Strength") {
+                                ap.setStrength( propertyValue.toInt() );
+                            } else if (propertyName == "Security") {
+                                ap.setSecurity( securityTypeString2Enum(propertyValue.toString()) );
+                            }
+
+                            arg.endMapEntry();
+                        }
+                        arg.endMap();
+
+                        if (!ap.ssid().isEmpty()) {
+                            int index = m_accessPoints.length();
+                            m_accessPoints.append(QVariant::fromValue(ap));
+                            m_accessPointObjects.insert(dbusObjPath, qMakePair(index, ap));
+            
+                            dbusConnection().connect(connectivityDBusService, dbusObjPath, dbusPropertyInterface, 
+                                    QStringLiteral("PropertiesChanged"), this, SLOT(propertiesChangedHandler(QDBusMessage)));
+    
+                            emit accessPointsChanged(m_accessPoints);
+                        }
+                    }
+                    watcher->deleteLater();
+                });
+    }
 }
+
 
 void WiFiBackend::connectSignalsHandler()
 {
@@ -372,32 +393,31 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
     if (arguments.value(0) == connectivityDBusInterface) {
         const QDBusArgument& argument1 = arguments.value(1).value<QDBusArgument>();
 
-        //------
-            argument1.beginMap();
-            while (!argument1.atEnd()) {
-                argument1.beginMapEntry();
-                QString propertyName;
-                QVariant propertyValue;
-                argument1 >> propertyName >> propertyValue;
-                if (propertyName == "WiFiEnabled") {
-                    setEnabled( propertyValue.toBool() );
-                } else if (propertyName == "WiFiAvailable") {
-                    setAvailable( propertyValue.toBool() );
-                } else if (propertyName == "WiFiAccessPoints") {
-                    const QDBusArgument &arg = propertyValue.value<QDBusArgument>();
-                    QList<QDBusObjectPath> dbusObjList;
-                    arg.beginArray();
-                    while (!arg.atEnd()) {
-                        QDBusObjectPath path;
-                        arg >> path;
-                        dbusObjList.append(path);
-                    }
-                    arg.endArray();
-                    updateAccessPoints( dbusObjList );
+        argument1.beginMap();
+        while (!argument1.atEnd()) {
+            argument1.beginMapEntry();
+            QString propertyName;
+            QVariant propertyValue;
+            argument1 >> propertyName >> propertyValue;
+            if (propertyName == "WiFiEnabled") {
+                setEnabled( propertyValue.toBool() );
+            } else if (propertyName == "WiFiAvailable") {
+                setAvailable( propertyValue.toBool() );
+            } else if (propertyName == "WiFiAccessPoints") {
+                const QDBusArgument &arg = propertyValue.value<QDBusArgument>();
+                QList<QDBusObjectPath> dbusObjList;
+                arg.beginArray();
+                while (!arg.atEnd()) {
+                    QDBusObjectPath path;
+                    arg >> path;
+                    dbusObjList.append(path);
                 }
-                argument1.endMapEntry();
+                arg.endArray();
+                updateAccessPoints( dbusObjList );
             }
-            argument1.endMap();
+            argument1.endMapEntry();
+        }
+        argument1.endMap();
     } else if (arguments.value(0) == accessPointDBusInterface) {
     
         QString objectPath = message.path();

@@ -88,7 +88,6 @@ private:
     AccessPoint m_activeAccessPoint;
     QString m_errorString;
 
-    //QMap<QString, QPair<int,QDBusObjectPath>> m_accessPointObjects; //ssid -> pair(index,QDBusObjectPath)
     QMap<QString, QPair<int, AccessPoint>> m_accessPointObjects; //dbus object path -> pair(index, AccessPoint)
     QVariantList m_accessPoints;
 
