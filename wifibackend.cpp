@@ -5,6 +5,7 @@
 #include <QDBusPendingReply>
 #include <QDBusPendingCall>
 #include <QDBusVariant>
+#include <QTimer>
 
 #include <QDebug>
 
@@ -23,25 +24,53 @@ void WiFiBackend::initialize()
     m_errorString = "";
     emit errorStringChanged(m_errorString);
 
-    m_available = getProperty("WiFiAvailable").toBool();
-    emit availableChanged(m_available);
-
-    m_enabled = getProperty("WiFiEnabled").toBool();
-    emit enabledChanged(m_enabled);
-
-    m_hotspotEnabled = getProperty("WiFiHotspotEnabled").toBool();
-    emit hotspotEnabledChanged(m_hotspotEnabled);
-
-    m_hotspotSSID = getProperty("WiFiHotspotSSID").toString();
-    emit hotspotSSIDChanged(m_hotspotSSID);
-
-    m_hotspotPassword = getProperty("WiFiHotspotPassphrase").toString();
-    emit hotspotPasswordChanged(m_hotspotPassword);
-
-    QList<QDBusObjectPath> dbusObjList = qvariant_cast< QList<QDBusObjectPath> >(getProperty("WiFiAccessPoints"));
-    updateAccessPoints( dbusObjList );
     connectSignalsHandler();
+        
+    getProperty("WiFiAvailable", 
+            [this](QDBusPendingCallWatcher *watcher) {
+                QDBusPendingReply<void> reply = *watcher;
+                QDBusMessage message = reply.reply();
+                const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                setAvailable( var.toBool() );
+                watcher->deleteLater();
+            });
 
+    getProperty("WiFiEnabled", 
+            [this](QDBusPendingCallWatcher *watcher) {
+                QDBusPendingReply<void> reply = *watcher;
+                QDBusMessage message = reply.reply();
+                const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                setEnabled( var.toBool() );
+                watcher->deleteLater();
+            });
+
+    getProperty("WiFiHotspotEnabled",
+            [this](QDBusPendingCallWatcher *watcher) {
+                QDBusPendingReply<void> reply = *watcher;
+                QDBusMessage message = reply.reply();
+                const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                setHotspotEnabled( var.toBool() );
+                watcher->deleteLater();
+            });
+
+    getProperty("WiFiHotspotSSID",
+            [this](QDBusPendingCallWatcher *watcher) {
+                QDBusPendingReply<void> reply = *watcher;
+                QDBusMessage message = reply.reply();
+                const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                setHotspotSSID( var.toString() );
+                watcher->deleteLater();
+            });
+
+    getProperty("WiFiHotspotPassphrase",
+            [this](QDBusPendingCallWatcher *watcher) {
+                QDBusPendingReply<void> reply = *watcher;
+                QDBusMessage message = reply.reply();
+                const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                setHotspotPassword( var.toString() );
+                watcher->deleteLater();
+            });
+    
     emit connectionStatusChanged(m_connectionStatus);
     emit activeAccessPointChanged(m_activeAccessPoint);
     
@@ -279,18 +308,19 @@ QDBusConnection WiFiBackend::dbusConnection()
 }
 
 
-QVariant WiFiBackend::getProperty(const QString& propertyName)
+void WiFiBackend::getProperty( const QString& propertyName, std::function<void(QDBusPendingCallWatcher*)> const& lambda)
 {
-    QDBusInterface dbusInterface(connectivityDBusService, connectivityDBusPath, connectivityDBusInterface,
-                                    WiFiBackend::dbusConnection(), this
-                                );
+    QDBusMessage dbusMessageRequestProperties = 
+        QDBusMessage::createMethodCall(connectivityDBusService, connectivityDBusPath, dbusPropertyInterface, "Get" );
+    QVariantList args;
+    args.append(QVariant::fromValue( connectivityDBusInterface ));
+    args.append(QVariant::fromValue( propertyName ));
+    dbusMessageRequestProperties.setArguments(args);
 
-    if (!dbusInterface.isValid()) {
-        qWarning() << Q_FUNC_INFO << dbusInterface.lastError().message();
-        return QVariant();
-    }
-
-    return dbusInterface.property(propertyName.toLatin1().data());
+    QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(dbusMessageRequestProperties, ASYNC_CALL_TIMEOUT);
+    QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
+      
+    QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, lambda);
 }
 
     
@@ -311,6 +341,13 @@ bool WiFiBackend::setProperty(const QString &propertyName, const QVariant &prope
 
 void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList )
 {
+    if (!m_allowedToUpdateList) {
+        return;
+    }
+
+    m_allowedToUpdateList = false;
+    QTimer::singleShot(500, [this]() { m_allowedToUpdateList = true;} );
+
     m_accessPoints.clear();
     m_accessPointObjects.clear();
 

@@ -70,7 +70,7 @@ private Q_SLOTS:
     void pendingCallFinished(QDBusPendingCallWatcher *watcher);
 
 private:
-    QVariant getProperty(const QString &propertyName);
+    void getProperty(const QString &propertyName, std::function<void(QDBusPendingCallWatcher*)> const& lambda);
     bool setProperty(const QString &propertyName, const QVariant &propertyValue);
 
     void updateAccessPoints(const QList<QDBusObjectPath> &dbusObjList);
@@ -98,6 +98,8 @@ private:
 
     void prepareUserInputAgent();
     void destroyUserInputAgent();
+
+    bool m_allowedToUpdateList = true;
 };
 
 #endif // CONNECTIVITY_WIFIBACKEND_H_
