@@ -100,6 +100,7 @@ private:
     void destroyUserInputAgent();
 
     bool m_allowedToUpdateList = true;
+    bool m_requiredUpdate = false;
 };
 
 #endif // CONNECTIVITY_WIFIBACKEND_H_

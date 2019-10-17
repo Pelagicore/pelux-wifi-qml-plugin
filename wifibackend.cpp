@@ -71,6 +71,25 @@ void WiFiBackend::initialize()
                 watcher->deleteLater();
             });
     
+    getProperty("WiFiAccessPoints",
+            [this](QDBusPendingCallWatcher *watcher) {
+                QDBusPendingReply<void> reply = *watcher;
+                QDBusMessage message = reply.reply();
+                const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                const QDBusArgument arg = var.value<QDBusArgument>();
+                QList<QDBusObjectPath> dbusObjList;
+                arg.beginArray();
+                while (!arg.atEnd()) {
+                    QDBusObjectPath path;
+                    arg >> path;
+                    dbusObjList.append(path);
+                }
+                arg.endArray();
+                updateAccessPoints( dbusObjList );
+
+                watcher->deleteLater();
+            });
+
     emit connectionStatusChanged(m_connectionStatus);
     emit activeAccessPointChanged(m_activeAccessPoint);
     
@@ -341,12 +360,38 @@ bool WiFiBackend::setProperty(const QString &propertyName, const QVariant &prope
 
 void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList )
 {
+    //qWarning() << Q_FUNC_INFO << m_allowedToUpdateList << m_requiredUpdate;
+
     if (!m_allowedToUpdateList) {
+        m_requiredUpdate = true;
         return;
     }
 
     m_allowedToUpdateList = false;
-    QTimer::singleShot(500, [this]() { m_allowedToUpdateList = true;} );
+
+    QTimer::singleShot(700, [this]() {
+            m_allowedToUpdateList = true;
+            if (m_requiredUpdate) {
+                m_requiredUpdate = false;
+                getProperty("WiFiAccessPoints", [this](QDBusPendingCallWatcher *watcher) {
+                    QDBusPendingReply<void> reply = *watcher;
+                    QDBusMessage message = reply.reply();
+                    const QVariant var = message.arguments().first().value<QDBusVariant>().variant();
+                    const QDBusArgument arg = var.value<QDBusArgument>();
+                    QList<QDBusObjectPath> dbusObjList;
+                    arg.beginArray();
+                    while (!arg.atEnd()) {
+                        QDBusObjectPath path;
+                        arg >> path;
+                        dbusObjList.append(path);
+                    }
+                    arg.endArray();
+                    updateAccessPoints( dbusObjList );
+
+                    watcher->deleteLater();
+                });
+            }
+            });
 
     m_accessPoints.clear();
     m_accessPointObjects.clear();
@@ -371,7 +416,7 @@ void WiFiBackend::updateAccessPoints( const QList<QDBusObjectPath> &dbusObjList 
                         return;
                     } else {
                         QDBusMessage message = reply.reply();
-                        const QDBusArgument &arg = message.arguments().first().value<QDBusArgument>();
+                        const QDBusArgument arg = message.arguments().first().value<QDBusArgument>();
                         AccessPoint ap;
                         arg.beginMap();
                         while (!arg.atEnd()) {
@@ -462,7 +507,7 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
             int index = m_accessPointObjects.value(objectPath).first;
             AccessPoint ap = m_accessPointObjects.value(objectPath).second;
                 
-            const QDBusArgument &argument1 = arguments.value(1).value<QDBusArgument>();
+            const QDBusArgument argument1 = arguments.value(1).value<QDBusArgument>();
             argument1.beginMap();
             while (!argument1.atEnd()) {
                 argument1.beginMapEntry();
