@@ -40,11 +40,11 @@ public:
     bool hotspotEnabled() const { return m_hotspotEnabled; }
     QString hotspotSSID() const { return m_hotspotSSID; }
     QString hotspotPassword() const { return m_hotspotPassword; }
-    QVariantList accessPoints() const { return m_accessPoints; }
     ConnectivityModule::ConnectionStatus connectionStatus() const { return m_connectionStatus; }
     AccessPoint activeAccessPoint() const { return m_activeAccessPoint; };
     QString errorString() const { return m_errorString; }
 
+    QVariantList accessPoints() const;
     void setAccessPoints(const QVariantList &accessPoints);
     void setConnectionStatus(ConnectivityModule::ConnectionStatus connectionStatus);
     void setActiveAccessPoint(const AccessPoint &activeAccessPoint);
@@ -73,7 +73,7 @@ private:
     void getProperty(const QString &propertyName, std::function<void(QDBusPendingCallWatcher*)> const& lambda);
     bool setProperty(const QString &propertyName, const QVariant &propertyValue);
 
-    void updateAccessPoints(const QList<QDBusObjectPath> &dbusObjList);
+    void updateAccessPoints();
     void connectSignalsHandler();
     ConnectivityModule::SecurityType securityTypeString2Enum(const QString& securityString);
 
@@ -88,7 +88,8 @@ private:
     AccessPoint m_activeAccessPoint;
     QString m_errorString;
 
-    QMap<QString, QPair<int, AccessPoint>> m_accessPointObjects; //dbus object path -> pair(index, AccessPoint)
+    QMap<QString, QVariant> m_accessPointObjects; //dbus object path -> QVariant(AccessPoint)
+    QList<QDBusObjectPath> m_dbusObjList;
     QVariantList m_accessPoints;
 
     bool m_dbusSignalsConnected = false;
