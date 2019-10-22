@@ -16,6 +16,13 @@ WiFiBackend::WiFiBackend(QObject *parent) : WiFiBackendInterface(parent)
     qRegisterMetaType<QQmlPropertyMap*>();
 
     ConnectivityModule::registerTypes();
+
+    m_timerToNotify.setInterval(500);
+    m_timerToNotify.setSingleShot(true);
+    QObject::connect(&m_timerToNotify, &QTimer::timeout, this, 
+            [this]() {
+                emit accessPointsChanged( accessPoints() );
+            });
 }
 
 
@@ -426,7 +433,6 @@ void WiFiBackend::updateAccessPoints()
 
                     if (reply.isError()) {
                         qWarning() << Q_FUNC_INFO << reply.error().message();
-                        return;
                     } else {
                         QDBusMessage message = reply.reply();
                         const QDBusArgument arg = message.arguments().first().value<QDBusArgument>();
@@ -457,7 +463,7 @@ void WiFiBackend::updateAccessPoints()
                             dbusConnection().connect(connectivityDBusService, dbusObjPath, dbusPropertyInterface, 
                                     QStringLiteral("PropertiesChanged"), this, SLOT(propertiesChangedHandler(QDBusMessage)));
     
-                            emit accessPointsChanged( accessPoints() );
+                            m_timerToNotify.start();
                         }
                     }
                     watcher->deleteLater();
@@ -476,7 +482,7 @@ void WiFiBackend::updateAccessPoints()
     }
 
     if (someAPsRemoved) {
-        emit accessPointsChanged( accessPoints() );
+        m_timerToNotify.start();
     }
 }
 
@@ -554,7 +560,7 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
             argument1.endMap();
                 
             m_accessPointObjects.insert(objectPath, QVariant::fromValue(ap));
-            emit accessPointsChanged( accessPoints() );
+            m_timerToNotify.start();
         }
     }
 }

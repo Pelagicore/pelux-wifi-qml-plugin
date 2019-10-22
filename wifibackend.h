@@ -12,6 +12,7 @@
 #include <QMap>
 #include <QDBusPendingCallWatcher>
 #include <QPair>
+#include <QTimer>
 
 #include "accesspoint.h"
 #include "wifibackendinterface.h"
@@ -102,6 +103,8 @@ private:
 
     bool m_allowedToUpdateList = true;
     bool m_requiredUpdate = false;
+
+    QTimer m_timerToNotify;
 };
 
 #endif // CONNECTIVITY_WIFIBACKEND_H_
