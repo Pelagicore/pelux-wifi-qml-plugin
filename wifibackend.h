@@ -67,9 +67,6 @@ public Q_SLOTS:
 private Q_SLOTS:
     void propertiesChangedHandler(const QDBusMessage &message);
 
-private Q_SLOTS:
-    void pendingCallFinished(QDBusPendingCallWatcher *watcher);
-
 private:
     void getProperty(const QString &propertyName, std::function<void(QDBusPendingCallWatcher*)> const& lambda);
     bool setProperty(const QString &propertyName, const QVariant &propertyValue);
@@ -87,6 +84,8 @@ private:
 
     ConnectivityModule::ConnectionStatus m_connectionStatus = ConnectivityModule::Disconnected;
     AccessPoint m_activeAccessPoint;
+    QString m_activeObjectPath;
+
     QString m_errorString;
 
     QMap<QString, QVariant> m_accessPointObjects; //dbus object path -> QVariant(AccessPoint)

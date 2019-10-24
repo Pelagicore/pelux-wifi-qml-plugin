@@ -181,10 +181,12 @@ void WiFiBackend::setAccessPoints(const QVariantList &accessPoints)
 
 void WiFiBackend::setConnectionStatus(ConnectivityModule::ConnectionStatus connectionStatus)
 {
+    qWarning() << Q_FUNC_INFO << m_connectionStatus << connectionStatus;
     if (m_connectionStatus == connectionStatus)
         return;
     m_connectionStatus = connectionStatus;
     emit connectionStatusChanged(m_connectionStatus);
+    qWarning() << Q_FUNC_INFO << "notified!";
 }
 
 void WiFiBackend::setActiveAccessPoint(const AccessPoint &activeAccessPoint)
@@ -201,31 +203,6 @@ void WiFiBackend::setErrorString(const QString &errorString)
         return;
     m_errorString = errorString;
     emit errorStringChanged(m_errorString);
-}
-
-
-void WiFiBackend::pendingCallFinished(QDBusPendingCallWatcher *watcher)
-{
-    AccessPoint ap;
-    QDBusPendingReply<void> reply = *watcher;
-    if (reply.isError()) {
-        setConnectionStatus(ConnectivityModule::Disconnected);
-        QString name = reply.error().name();
-        QString message = reply.error().message();
-        setErrorString(message);
-        setActiveAccessPoint(AccessPoint("", false, 0, ConnectivityModule::SecurityType::NoSecurity));
-        qWarning() << Q_FUNC_INFO << name << ":" << message;
-    } else {
-        if (connectionStatus() == ConnectivityModule::Connecting) {
-            setConnectionStatus(ConnectivityModule::Connected);
-        } else {
-            setActiveAccessPoint(AccessPoint("", false, 0, ConnectivityModule::SecurityType::NoSecurity));
-            setConnectionStatus(ConnectivityModule::Disconnected);
-        }
-    }
-
-    WiFiBackend::dbusConnection().unregisterObject(userInputAgentDBusPath);
-    watcher->deleteLater();
 }
 
 
@@ -251,8 +228,6 @@ QIviPendingReply<void> WiFiBackend::connectToAccessPoint(const QString &ssid)
     QIviPendingReply<void> reply;
     prepareUserInputAgent();
 
-    setActiveAccessPoint(AccessPoint(ssid, false, 0, ConnectivityModule::SecurityType::NoSecurity));
-
     QDBusMessage messageConnect = QDBusMessage::createMethodCall(connectivityDBusService, connectivityDBusPath, connectivityDBusInterface, "Connect" );
 
     QString objectPath;
@@ -271,6 +246,9 @@ QIviPendingReply<void> WiFiBackend::connectToAccessPoint(const QString &ssid)
         return reply;
     }
 
+    setActiveAccessPoint(AccessPoint(ssid, false, 0, ConnectivityModule::SecurityType::NoSecurity));
+    setConnectionStatus(ConnectivityModule::Connecting);
+
     QVariantList args;
     args.append(QVariant::fromValue(QDBusObjectPath(objectPath)));
     args.append(QVariant::fromValue(QDBusObjectPath(userInputAgentDBusPath)));
@@ -278,10 +256,23 @@ QIviPendingReply<void> WiFiBackend::connectToAccessPoint(const QString &ssid)
 
     QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(messageConnect, ASYNC_CALL_TIMEOUT);
     QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
-    QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, &WiFiBackend::pendingCallFinished);
-    
-    setConnectionStatus(ConnectivityModule::Connecting);
+    QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this,
+            [this, objectPath](QDBusPendingCallWatcher *watcher) {
+                AccessPoint ap;
+                QDBusPendingReply<void> reply = *watcher;
+                if (reply.isError()) {
+                    QString name = reply.error().name();
+                    QString message = reply.error().message();
+                    setErrorString(message);
+                    qWarning() << Q_FUNC_INFO << name << ":" << message;
+                    setConnectionStatus(ConnectivityModule::Disconnected);
+                    setActiveAccessPoint(AccessPoint("", false, 0, ConnectivityModule::SecurityType::NoSecurity));
+                }
 
+                WiFiBackend::dbusConnection().unregisterObject(userInputAgentDBusPath);
+                watcher->deleteLater();
+            });
+    
     reply.setSuccess();
     return reply;
 }
@@ -294,7 +285,7 @@ QIviPendingReply<void> WiFiBackend::disconnectFromAccessPoint(const QString &ssi
     if (connectionStatus() == ConnectivityModule::Connecting) {
         m_userInputAgent->cancel();
     }
-
+    
     QDBusMessage messageConnect = QDBusMessage::createMethodCall(connectivityDBusService, connectivityDBusPath, connectivityDBusInterface, "Disconnect" );
 
     QString objectPath;
@@ -307,22 +298,36 @@ QIviPendingReply<void> WiFiBackend::disconnectFromAccessPoint(const QString &ssi
         }
     }
 
-    if (objectPath.isEmpty()) {
+    //if (objectPath.isEmpty()) {
+    if (m_activeObjectPath.isEmpty()) {
         qWarning() << Q_FUNC_INFO << "Unknown SSID" << ssid << "to disconnect to.";
         reply.setFailed();
         return reply;
     }
 
     QVariantList args;
-    args.append(QVariant::fromValue(QDBusObjectPath(objectPath)));
-
+    args.append(QVariant::fromValue(QDBusObjectPath(m_activeObjectPath)));
     messageConnect.setArguments(args);
+
+    setConnectionStatus(ConnectivityModule::Disconnecting);
 
     QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(messageConnect, ASYNC_CALL_TIMEOUT);
     QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
-    QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, &WiFiBackend::pendingCallFinished);
+    QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this,
+            [this](QDBusPendingCallWatcher *watcher) {
+                AccessPoint ap;
+                QDBusPendingReply<void> reply = *watcher;
+                if (reply.isError()) {
+                    QString name = reply.error().name();
+                    QString message = reply.error().message();
+                    setErrorString(message);
+                    qWarning() << Q_FUNC_INFO << name << ":" << message;
+                    setConnectionStatus(ConnectivityModule::Disconnected);
+                    //setActiveAccessPoint(AccessPoint("", false, 0, ConnectivityModule::SecurityType::NoSecurity));
+                }
+                watcher->deleteLater();
+            });
     
-    setConnectionStatus(ConnectivityModule::Disconnecting);
 
     reply.setSuccess();
     return reply;
@@ -408,7 +413,6 @@ void WiFiBackend::updateAccessPoints()
             }
             });
 
-
     QMap<QString, bool> newAccessPoints;
     for (int i=0; i<m_dbusObjList.count(); i++) {
         QString dbusObjPath = m_dbusObjList.at(i).path();
@@ -426,7 +430,7 @@ void WiFiBackend::updateAccessPoints()
 
         QDBusPendingCall pendingCall = WiFiBackend::dbusConnection().asyncCall(dbusMessageRequestProperties, ASYNC_CALL_TIMEOUT);
         QDBusPendingCallWatcher *pendingCallWatcher = new QDBusPendingCallWatcher(pendingCall, this);
-            
+
         QObject::connect(pendingCallWatcher, &QDBusPendingCallWatcher::finished, this, 
                 [this, dbusObjPath](QDBusPendingCallWatcher *watcher) {
                     QDBusPendingReply<void> reply = *watcher;
@@ -458,6 +462,16 @@ void WiFiBackend::updateAccessPoints()
                         arg.endMap();
 
                         if (!ap.ssid().isEmpty()) {
+                            if (ap.connected() && (connectionStatus() != ConnectivityModule::Connected)) {
+                                setConnectionStatus(ConnectivityModule::Connected);
+                                setActiveAccessPoint(ap);
+                                m_activeObjectPath = dbusObjPath;
+                            } else if ((connectionStatus() != ConnectivityModule::Disconnected) && (m_activeObjectPath == dbusObjPath) && (!ap.connected())) {
+                                setConnectionStatus(ConnectivityModule::Disconnected);
+                                setActiveAccessPoint(AccessPoint("", false, 0, ConnectivityModule::SecurityType::NoSecurity));
+                                m_activeObjectPath = "";
+                            }
+
                             m_accessPointObjects.insert(dbusObjPath, QVariant::fromValue(ap));
             
                             dbusConnection().connect(connectivityDBusService, dbusObjPath, dbusPropertyInterface, 
@@ -474,6 +488,8 @@ void WiFiBackend::updateAccessPoints()
     bool someAPsRemoved = false;
     for (auto it = m_accessPointObjects.begin(); it != m_accessPointObjects.end();) {
         if ( !newAccessPoints.contains(it.key()) ) {
+            dbusConnection().disconnect( connectivityDBusService, it.key(), dbusPropertyInterface,
+                    QStringLiteral("PropertiesChanged"), this, SLOT(propertiesChangedHandler(QDBusMessage)));
             it = m_accessPointObjects.erase(it);
             someAPsRemoved = true;
         } else {
@@ -537,7 +553,7 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
         QString objectPath = message.path();
         if ( m_accessPointObjects.contains(objectPath) ) {
             AccessPoint ap = m_accessPointObjects.value(objectPath).value<AccessPoint>();
-                
+ 
             const QDBusArgument argument1 = arguments.value(1).value<QDBusArgument>();
             argument1.beginMap();
             while (!argument1.atEnd()) {
@@ -560,6 +576,15 @@ void WiFiBackend::propertiesChangedHandler(const QDBusMessage &message)
             argument1.endMap();
                 
             m_accessPointObjects.insert(objectPath, QVariant::fromValue(ap));
+            if ((connectionStatus() != ConnectivityModule::Connected) && ap.connected() ) {
+                setConnectionStatus(ConnectivityModule::Connected);
+                setActiveAccessPoint(ap);
+                m_activeObjectPath = objectPath;
+            } else if ((connectionStatus() != ConnectivityModule::Disconnected) && (m_activeObjectPath == objectPath) && (!ap.connected())) {
+                setConnectionStatus(ConnectivityModule::Disconnected);
+                setActiveAccessPoint(AccessPoint("", false, 0, ConnectivityModule::SecurityType::NoSecurity));
+                m_activeObjectPath = "";
+            }
             m_timerToNotify.start();
         }
     }
